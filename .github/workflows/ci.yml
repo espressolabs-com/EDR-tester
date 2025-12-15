@@ -165,14 +165,17 @@ jobs:
             
             **One-line execution:**
             ```bash
-            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/edr-tester.sh | bash
+            curl -fsSL https://github.com/espressolabs-com/EDR-tester/releases/download/${{ steps.version.outputs.version }}/edr-tester.sh \
+              -o /tmp/edr-tester.sh \
+              && chmod +x /tmp/edr-tester.sh \
+              && /tmp/edr-tester.sh
             ```
             
             Or download and run:
             ```bash
-            wget https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/edr-tester.sh
-            chmod +x edr-tester.sh
-            ./edr-tester.sh
+            wget https://github.com/espressolabs-com/EDR-tester/releases/download/${{ steps.version.outputs.version }}/edr-tester.sh -O /tmp/edr-tester.sh
+            chmod +x /tmp/edr-tester.sh
+            /tmp/edr-tester.sh
             ```
             
             ### Requirements

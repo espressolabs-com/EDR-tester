@@ -29,6 +29,25 @@ This tool is designed for:
 
 ## 🚀 Quick Start
 
+### One-Command Installation
+
+Users can download and run with one command:
+
+```bash
+curl -fsSL https://github.com/espressolabs-com/EDR-tester/releases/download/v1.0.0/edr-tester.sh \
+  -o /tmp/edr-tester.sh \
+  && chmod +x /tmp/edr-tester.sh \
+  && /tmp/edr-tester.sh
+```
+
+Or download and execute:
+
+```bash
+wget https://github.com/espressolabs-com/EDR-tester/releases/download/v1.0.0/edr-tester.sh -O /tmp/edr-tester.sh
+chmod +x /tmp/edr-tester.sh
+/tmp/edr-tester.sh
+```
+
 ### Linux
 
 ```bash
