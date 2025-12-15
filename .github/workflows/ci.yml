@@ -1,0 +1,190 @@
+name: CI/CD - Test and Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Run EDR tests
+        run: node basic_tests.js
+      
+      - name: Display test report
+        if: always()
+        run: |
+          REPORT=$(ls /tmp/edr-report-*.json 2>/dev/null | tail -1 || echo "")
+          if [ -n "$REPORT" ]; then
+            echo "=== Test Report ==="
+            cat "$REPORT"
+          fi
+
+  release:
+    name: Create Release
+    needs: test
+    runs-on: ubuntu-latest
+    if: success()
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with: node-version: '18'
+      
+      - name: Create universal runner script
+        id: create_runner
+        run: |
+          # Create a single-file universal runner that embeds the JS content
+          cat > edr-tester.sh << 'RUNNER_HEADER'
+          #!/bin/bash
+          # EDR Tester - Universal Runner Script
+          # This is a single-file executable that runs the EDR validation tests
+          # Works on: Linux, macOS, Windows (Git Bash/WSL)
+          
+          set -e
+          
+          # Extract embedded JS content
+          EXTRACT_DIR=$(mktemp -d)
+          trap "rm -rf $EXTRACT_DIR" EXIT
+          
+          # Find the start of the embedded JS (after this script)
+          SCRIPT_START=$(awk '/^__JS_CONTENT_START__$/ {print NR+1; exit}' "$0" 2>/dev/null || echo "0")
+          
+          if [ "$SCRIPT_START" -gt 0 ]; then
+            # Extract embedded JS
+            tail -n +$SCRIPT_START "$0" > "$EXTRACT_DIR/basic_tests.js"
+          else
+            # Fallback: try to find basic_tests.js in the same directory
+            SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+            if [ -f "$SCRIPT_DIR/basic_tests.js" ]; then
+              cp "$SCRIPT_DIR/basic_tests.js" "$EXTRACT_DIR/basic_tests.js"
+            else
+              echo "Error: Could not find test script"
+              exit 1
+            fi
+          fi
+          
+          # Check for Node.js
+          if ! command -v node &> /dev/null; then
+            echo "Error: Node.js is required but not found."
+            echo "Please install Node.js 18+ from https://nodejs.org/"
+            exit 1
+          fi
+          
+          # Check Node.js version
+          NODE_VERSION=$(node -v | sed 's/v//')
+          NODE_MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
+          
+          if [ "$NODE_MAJOR" -lt 18 ]; then
+            echo "Error: Node.js 18+ is required, but version $NODE_VERSION is installed."
+            exit 1
+          fi
+          
+          # Run the tests
+          node "$EXTRACT_DIR/basic_tests.js"
+          
+          exit $?
+          
+          __JS_CONTENT_START__
+          RUNNER_HEADER
+          
+          # Append the JS file content
+          cat basic_tests.js >> edr-tester.sh
+          
+          # Make it executable
+          chmod +x edr-tester.sh
+          
+          echo "Created universal runner: edr-tester.sh"
+          
+          # Verify the script works
+          echo "Verifying script structure..."
+          JS_LINE=$(grep -n "^__JS_CONTENT_START__$" edr-tester.sh | cut -d: -f1)
+          if [ -n "$JS_LINE" ]; then
+            echo "✓ Script structure verified (JS content starts at line $JS_LINE)"
+          else
+            echo "✗ Warning: Could not verify script structure"
+          fi
+      
+      - name: Get version
+        id: version
+        run: |
+          # Fetch all tags to get the latest
+          git fetch --tags || true
+          
+          # Get the latest tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          
+          if [ -n "$LATEST_TAG" ]; then
+            # Extract version numbers (handle v1.0.0 or 1.0.0 format)
+            if [[ "$LATEST_TAG" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              MAJOR="${BASH_REMATCH[1]}"
+              MINOR="${BASH_REMATCH[2]}"
+              PATCH="${BASH_REMATCH[3]}"
+              # Increment patch version
+              PATCH=$((PATCH + 1))
+              VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+            else
+              # If tag format is unexpected, append .1
+              VERSION="${LATEST_TAG}.1"
+            fi
+          else
+            # No tags exist, start with v1.0.0
+            VERSION="v1.0.0"
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          body: |
+            ## EDR Tester Release ${{ steps.version.outputs.version }}
+            
+            ### Download and Run
+            
+            **One-line execution:**
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/edr-tester.sh | bash
+            ```
+            
+            Or download and run:
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/edr-tester.sh
+            chmod +x edr-tester.sh
+            ./edr-tester.sh
+            ```
+            
+            ### Requirements
+            - Node.js 18+ (will check and prompt if missing)
+            - Works on: Linux, macOS, Windows (Git Bash/WSL)
+            
+            ### What's Included
+            - Complete EDR validation test suite
+            - 12 MITRE ATT&CK mapped tests
+            - Cross-platform support
+            - Structured JSON reporting
+            
+            ### Changes
+            - Automated release from commit: ${{ github.sha }}
+          files: edr-tester.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
